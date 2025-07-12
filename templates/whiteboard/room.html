@@ -1,0 +1,398 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ room.name }} - Whiteboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    body {
+        overflow: hidden;
+    }
+    
+    .whiteboard-container {
+        position: fixed;
+        top: 56px; /* navbar height */
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .toolbar {
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 10px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        flex-wrap: wrap;
+        z-index: 1000;
+    }
+    
+    .tool-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        border-right: 1px solid #dee2e6;
+        padding-right: 15px;
+    }
+    
+    .tool-group:last-child {
+        border-right: none;
+    }
+    
+    .tool-btn {
+        width: 40px;
+        height: 40px;
+        border: 2px solid transparent;
+        background: white;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .tool-btn.active {
+        border-color: #007bff;
+        background: #e3f2fd;
+    }
+    
+    .tool-btn:hover {
+        background: #f5f5f5;
+    }
+    
+    .color-picker {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .color-option {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 2px solid #ddd;
+        position: relative;
+    }
+    
+    .color-option.active {
+        border-color: #333;
+        transform: scale(1.1);
+    }
+    
+    .size-control {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    
+    .size-control input {
+        width: 100px;
+    }
+    
+    .size-control label {
+        font-size: 12px;
+        margin: 0;
+    }
+    
+    .canvas-container {
+        flex: 1;
+        position: relative;
+        overflow: hidden;
+        background: white;
+    }
+    
+    #whiteboard {
+        cursor: crosshair;
+        touch-action: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+    
+    #whiteboard.pen-tool { cursor: crosshair; }
+    #whiteboard.eraser-tool { cursor: grab; }
+    #whiteboard.text-tool { cursor: text; }
+    #whiteboard.pan-tool { cursor: grab; }
+    #whiteboard.pan-tool:active { cursor: grabbing; }
+    
+    .participants-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        padding: 10px;
+        max-width: 200px;
+        z-index: 100;
+    }
+    
+    .participant {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+    }
+    
+    .participant-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #28a745;
+    }
+    
+    .cursor {
+        position: absolute;
+        pointer-events: none;
+        z-index: 999;
+        transition: all 0.1s ease;
+    }
+    
+    .cursor::after {
+        content: attr(data-username);
+        position: absolute;
+        background: rgba(0,0,0,0.8);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        top: 15px;
+        left: 15px;
+        white-space: nowrap;
+    }
+    
+    .text-input-overlay {
+        position: absolute;
+        z-index: 1001;
+        background: white;
+        border: 2px solid #007bff;
+        border-radius: 4px;
+        padding: 5px;
+        display: none;
+    }
+    
+    .text-input-overlay input {
+        border: none;
+        outline: none;
+        background: transparent;
+        font-size: 16px;
+        min-width: 100px;
+    }
+    
+    .zoom-controls {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        padding: 10px;
+    }
+    
+    .zoom-btn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        background: #f8f9fa;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .zoom-btn:hover {
+        background: #e9ecef;
+    }
+    
+    @media (max-width: 768px) {
+        .toolbar {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .tool-group {
+            border-right: none;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 10px;
+            padding-right: 0;
+        }
+        
+        .participants-panel {
+            position: relative;
+            top: auto;
+            right: auto;
+            margin: 10px;
+            max-width: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="whiteboard-container">
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <!-- Drawing Tools -->
+        <div class="tool-group">
+            <div class="tool-btn active" data-tool="pen" title="Pen">
+                <i class="fas fa-pen"></i>
+            </div>
+            <div class="tool-btn" data-tool="brush" title="Brush">
+                <i class="fas fa-paint-brush"></i>
+            </div>
+            <div class="tool-btn" data-tool="eraser" title="Eraser">
+                <i class="fas fa-eraser"></i>
+            </div>
+        </div>
+        
+        <!-- Shape Tools -->
+        <div class="tool-group">
+            <div class="tool-btn" data-tool="line" title="Line">
+                <i class="fas fa-minus"></i>
+            </div>
+            <div class="tool-btn" data-tool="rectangle" title="Rectangle">
+                <i class="far fa-square"></i>
+            </div>
+            <div class="tool-btn" data-tool="circle" title="Circle">
+                <i class="far fa-circle"></i>
+            </div>
+            <div class="tool-btn" data-tool="arrow" title="Arrow">
+                <i class="fas fa-long-arrow-alt-right"></i>
+            </div>
+        </div>
+        
+        <!-- Text and Other Tools -->
+        <div class="tool-group">
+            <div class="tool-btn" data-tool="text" title="Text">
+                <i class="fas fa-font"></i>
+            </div>
+            <div class="tool-btn" data-tool="select" title="Select">
+                <i class="fas fa-mouse-pointer"></i>
+            </div>
+            <div class="tool-btn" data-tool="pan" title="Pan">
+                <i class="fas fa-hand-paper"></i>
+            </div>
+        </div>
+        
+        <!-- Colors -->
+        <div class="tool-group">
+            <div class="color-picker">
+                <div class="color-option active" data-color="#000000" style="background-color: #000000" title="Black"></div>
+                <div class="color-option" data-color="#FF0000" style="background-color: #FF0000" title="Red"></div>
+                <div class="color-option" data-color="#00FF00" style="background-color: #00FF00" title="Green"></div>
+                <div class="color-option" data-color="#0000FF" style="background-color: #0000FF" title="Blue"></div>
+                <div class="color-option" data-color="#FFFF00" style="background-color: #FFFF00" title="Yellow"></div>
+                <div class="color-option" data-color="#FF00FF" style="background-color: #FF00FF" title="Magenta"></div>
+                <div class="color-option" data-color="#00FFFF" style="background-color: #00FFFF" title="Cyan"></div>
+                <div class="color-option" data-color="#FFA500" style="background-color: #FFA500" title="Orange"></div>
+                <div class="color-option" data-color="#800080" style="background-color: #800080" title="Purple"></div>
+            </div>
+            <input type="color" id="custom-color" title="Custom Color">
+        </div>
+        
+        <!-- Size Controls -->
+        <div class="tool-group">
+            <div class="size-control">
+                <label>Size</label>
+                <input type="range" id="brush-size" min="1" max="50" value="5">
+                <span id="size-display">5px</span>
+            </div>
+        </div>
+        
+        <!-- Opacity -->
+        <div class="tool-group">
+            <div class="size-control">
+                <label>Opacity</label>
+                <input type="range" id="opacity" min="0.1" max="1" step="0.1" value="1">
+                <span id="opacity-display">100%</span>
+            </div>
+        </div>
+        
+        <!-- Actions -->
+        <div class="tool-group">
+            <button class="btn btn-sm btn-outline-secondary" id="undo-btn" title="Undo">
+                <i class="fas fa-undo"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="redo-btn" title="Redo">
+                <i class="fas fa-redo"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" id="clear-btn" title="Clear All">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        
+        <!-- Save/Load -->
+        <div class="tool-group">
+            <button class="btn btn-sm btn-outline-primary" id="save-btn" title="Save Snapshot">
+                <i class="fas fa-save"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-info" id="export-btn" title="Export Image">
+                <i class="fas fa-download"></i>
+            </button>
+        </div>
+        
+        <!-- Grid Toggle -->
+        <div class="tool-group">
+            <div class="tool-btn" id="grid-toggle" title="Toggle Grid">
+                <i class="fas fa-th"></i>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Canvas Container -->
+    <div class="canvas-container">
+        <canvas id="whiteboard"></canvas>
+        
+        <!-- Text Input Overlay -->
+        <div class="text-input-overlay" id="text-input">
+            <input type="text" placeholder="Enter text...">
+        </div>
+        
+        <!-- Participants Panel -->
+        <div class="participants-panel">
+            <h6><i class="fas fa-users"></i> Participants</h6>
+            <div id="participants-list">
+                <!-- Participants will be populated here -->
+            </div>
+        </div>
+        
+        <!-- Zoom Controls -->
+        <div class="zoom-controls">
+            <button class="zoom-btn" id="zoom-in" title="Zoom In">
+                <i class="fas fa-plus"></i>
+            </button>
+            <div class="zoom-level" id="zoom-display">100%</div>
+            <button class="zoom-btn" id="zoom-out" title="Zoom Out">
+                <i class="fas fa-minus"></i>
+            </button>
+            <button class="zoom-btn" id="zoom-reset" title="Reset Zoom">
+                <i class="fas fa-expand-arrows-alt"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Room Info (Hidden, for JS access) -->
+<script>
+    window.ROOM_DATA = {
+        id: '{{ room_id }}',
+        name: '{{ room.name }}',
+        websocketUrl: 'ws://localhost:8000/ws/whiteboard/{{ room_id }}/',
+        user: '{{ user.username }}'
+    };
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/whiteboard.js' %}"></script>
+{% endblock %}
+
